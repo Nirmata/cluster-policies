@@ -1,0 +1,141 @@
+---
+labels:
+  nirmata.io/clusterspec.version: v1.9.1
+version: v1.9.1
+authorization:
+  mode: rbac
+components:
+- name: etcd
+  image: gcr.io/google_containers/etcd:3.0.14
+  args: {}
+- name: apiserver
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    allow-privileged: "true"
+    client-ca-file: /etc/kubernetes/ssl/ca.crt
+    tls-cert-file: /etc/kubernetes/ssl/server.crt
+    tls-private-key-file: /etc/kubernetes/ssl/server.key
+    service-account-key-file: /etc/kubernetes/ssl/server.key
+    etcd-cafile: /etc/kubernetes/ssl/ca.crt
+    etcd-certfile: /etc/kubernetes/ssl/etcd-client.crt
+    etcd-keyfile: /etc/kubernetes/ssl/etcd-client.key
+    admission-control: Initializers,NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,DefaultTolerationSeconds,NodeRestriction,ResourceQuota
+    authorization-mode: RBAC,Node
+    requestheader-client-ca-file: /etc/kubernetes/ssl/aggregator-ca.crt
+    requestheader-allowed-names: aggregator
+    requestheader-extra-headers-prefix: X-Remote-Extra-
+    requestheader-group-headers: X-Remote-Group
+    requestheader-username-headers: X-Remote-User
+    enable-aggregator-routing: "true"
+    service-cluster-ip-range: 10.10.0.0/16
+- name: controller-manager
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    service-account-private-key-file: /etc/kubernetes/ssl/server.key
+    root-ca-file: /etc/kubernetes/ssl/ca.crt
+    master: http://{NIRMATA_HOST_PRIVATE_ADDRESS}:8080
+    allocate-node-cidrs: "true"
+    cluster-cidr: 10.244.0.0/16
+- name: scheduler
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    master: http://{NIRMATA_HOST_PRIVATE_ADDRESS}:8080
+- name: kubelet
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    kubeconfig: /var/lib/kubeconfig/kubelet.yaml
+    allow-privileged: "true"
+    container-runtime: docker
+    pod-manifest-path: /etc/kubernetes/manifests
+    network-plugin: cni
+    cni-conf-dir: /etc/cni/net.d
+    cni-bin-dir: /opt/cni/bin
+    cluster-domain: cluster.local
+    fail-swap-on: "false"
+    hostname-override: '{NIRMATA_HOST_PRIVATE_DNS_NAME}'
+    cluster-dns: 10.10.0.10
+- name: proxy
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    kubeconfig: /var/lib/kubeconfig/proxy.yaml
+addons:
+  dns: true
+ingressController:
+  name: nginx-ingress
+  yaml: "---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: ingress-nginx\n\
+    ---\nkind: ConfigMap\napiVersion: v1\nmetadata:\n  name: nginx-configuration\n\
+    \  namespace: ingress-nginx\n  labels:\n    app: ingress-nginx\n---\napiVersion:\
+    \ extensions/v1beta1\nkind: Deployment\nmetadata:\n  name: default-http-backend\n\
+    \  labels:\n    app: default-http-backend\n  namespace: ingress-nginx\nspec:\n\
+    \  replicas: 1\n  selector:\n    matchLabels:\n      app: default-http-backend\n\
+    \  template:\n    metadata:\n      labels:\n        app: default-http-backend\n\
+    \    spec:\n      terminationGracePeriodSeconds: 60\n      containers:\n     \
+    \ - name: default-http-backend\n        # Any image is permissible as long as:\n\
+    \        # 1. It serves a 404 page at /\n        # 2. It serves 200 on a /healthz\
+    \ endpoint\n        image: gcr.io/google_containers/defaultbackend:1.4\n     \
+    \   livenessProbe:\n          httpGet:\n            path: /healthz\n         \
+    \   port: 8080\n            scheme: HTTP\n          initialDelaySeconds: 30\n\
+    \          timeoutSeconds: 5\n        ports:\n        - containerPort: 8080\n\
+    \        resources:\n          limits:\n            cpu: 10m\n            memory:\
+    \ 20Mi\n          requests:\n            cpu: 10m\n            memory: 20Mi\n\
+    ---\napiVersion: v1\nkind: Service\nmetadata:\n  name: default-http-backend\n\
+    \  namespace: ingress-nginx\n  labels:\n    app: default-http-backend\nspec:\n\
+    \  ports:\n  - port: 80\n    targetPort: 8080\n  selector:\n    app: default-http-backend\n\
+    ---\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: nginx-ingress-serviceaccount\n\
+    \  namespace: ingress-nginx\n\n---\n\napiVersion: rbac.authorization.k8s.io/v1beta1\n\
+    kind: ClusterRole\nmetadata:\n  name: nginx-ingress-clusterrole\nrules:\n  - apiGroups:\n\
+    \      - &#34;&#34;\n    resources:\n      - configmaps\n      - endpoints\n \
+    \     - nodes\n      - pods\n      - secrets\n    verbs:\n      - list\n     \
+    \ - watch\n  - apiGroups:\n      - &#34;&#34;\n    resources:\n      - nodes\n\
+    \    verbs:\n      - get\n  - apiGroups:\n      - &#34;&#34;\n    resources:\n\
+    \      - services\n    verbs:\n      - get\n      - list\n      - watch\n  - apiGroups:\n\
+    \      - &#34;extensions&#34;\n    resources:\n      - ingresses\n    verbs:\n\
+    \      - get\n      - list\n      - watch\n  - apiGroups:\n      - &#34;&#34;\n\
+    \    resources:\n        - events\n    verbs:\n        - create\n        - patch\n\
+    \  - apiGroups:\n      - &#34;extensions&#34;\n    resources:\n      - ingresses/status\n\
+    \    verbs:\n      - update\n\n---\n\napiVersion: rbac.authorization.k8s.io/v1beta1\n\
+    kind: Role\nmetadata:\n  name: nginx-ingress-role\n  namespace: ingress-nginx\n\
+    rules:\n  - apiGroups:\n      - &#34;&#34;\n    resources:\n      - configmaps\n\
+    \      - pods\n      - secrets\n      - namespaces\n    verbs:\n      - get\n\
+    \  - apiGroups:\n      - &#34;&#34;\n    resources:\n      - configmaps\n    resourceNames:\n\
+    \      # Defaults to &#34;&lt;election-id&gt;-&lt;ingress-class&gt;&#34;\n   \
+    \   # Here: &#34;&lt;ingress-controller-leader&gt;-&lt;nginx&gt;&#34;\n      #\
+    \ This has to be adapted if you change either parameter\n      # when launching\
+    \ the nginx-ingress-controller.\n      - &#34;ingress-controller-leader-nginx&#34;\n\
+    \    verbs:\n      - get\n      - update\n  - apiGroups:\n      - &#34;&#34;\n\
+    \    resources:\n      - configmaps\n    verbs:\n      - create\n  - apiGroups:\n\
+    \      - &#34;&#34;\n    resources:\n      - endpoints\n    verbs:\n      - get\n\
+    \n---\n\napiVersion: rbac.authorization.k8s.io/v1beta1\nkind: RoleBinding\nmetadata:\n\
+    \  name: nginx-ingress-role-nisa-binding\n  namespace: ingress-nginx\nroleRef:\n\
+    \  apiGroup: rbac.authorization.k8s.io\n  kind: Role\n  name: nginx-ingress-role\n\
+    subjects:\n  - kind: ServiceAccount\n    name: nginx-ingress-serviceaccount\n\
+    \    namespace: ingress-nginx\n\n---\n\napiVersion: rbac.authorization.k8s.io/v1beta1\n\
+    kind: ClusterRoleBinding\nmetadata:\n  name: nginx-ingress-clusterrole-nisa-binding\n\
+    roleRef:\n  apiGroup: rbac.authorization.k8s.io\n  kind: ClusterRole\n  name:\
+    \ nginx-ingress-clusterrole\nsubjects:\n  - kind: ServiceAccount\n    name: nginx-ingress-serviceaccount\n\
+    \    namespace: ingress-nginx\n---\nkind: ConfigMap\napiVersion: v1\nmetadata:\n\
+    \  name: tcp-services\n  namespace: ingress-nginx\n---\nkind: ConfigMap\napiVersion:\
+    \ v1\nmetadata:\n  name: udp-services\n  namespace: ingress-nginx\n---\napiVersion:\
+    \ extensions/v1beta1\nkind: Deployment\nmetadata:\n  name: nginx-ingress-controller\n\
+    \  namespace: ingress-nginx \nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n\
+    \      app: ingress-nginx\n  template:\n    metadata:\n      labels:\n       \
+    \ app: ingress-nginx\n      annotations:\n        prometheus.io/port: &#39;10254&#39;\n\
+    \        prometheus.io/scrape: &#39;true&#39;\n    spec:\n      serviceAccountName:\
+    \ nginx-ingress-serviceaccount\n      containers:\n        - name: nginx-ingress-controller\n\
+    \          image: quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.10.2\n\
+    \          args:\n            - /nginx-ingress-controller\n            - --default-backend-service=$(POD_NAMESPACE)/default-http-backend\n\
+    \            - --configmap=$(POD_NAMESPACE)/nginx-configuration\n            -\
+    \ --tcp-services-configmap=$(POD_NAMESPACE)/tcp-services\n            - --udp-services-configmap=$(POD_NAMESPACE)/udp-services\n\
+    \            - --annotations-prefix=nginx.ingress.kubernetes.io\n          env:\n\
+    \            - name: POD_NAME\n              valueFrom:\n                fieldRef:\n\
+    \                  fieldPath: metadata.name\n            - name: POD_NAMESPACE\n\
+    \              valueFrom:\n                fieldRef:\n                  fieldPath:\
+    \ metadata.namespace\n          ports:\n          - name: http\n            containerPort:\
+    \ 80\n          - name: https\n            containerPort: 443\n          livenessProbe:\n\
+    \            failureThreshold: 3\n            httpGet:\n              path: /healthz\n\
+    \              port: 10254\n              scheme: HTTP\n            initialDelaySeconds:\
+    \ 10\n            periodSeconds: 10\n            successThreshold: 1\n       \
+    \     timeoutSeconds: 1\n          readinessProbe:\n            failureThreshold:\
+    \ 3\n            httpGet:\n              path: /healthz\n              port: 10254\n\
+    \              scheme: HTTP\n            periodSeconds: 10\n            successThreshold:\
+    \ 1\n            timeoutSeconds: 1\n"

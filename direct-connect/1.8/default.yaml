@@ -1,0 +1,54 @@
+---
+version: v1.8.6
+authorization:
+  mode: rbac
+components:
+- name: etcd
+  image: gcr.io/google_containers/etcd:3.0.14
+  args: {}
+- name: apiserver
+  image: gcr.io/google_containers/hyperkube:v1.8.6
+  args:
+    allow-privileged: "true"
+    client-ca-file: /etc/kubernetes/ssl/ca.crt
+    tls-cert-file: /etc/kubernetes/ssl/server.crt
+    tls-private-key-file: /etc/kubernetes/ssl/server.key
+    service-account-key-file: /etc/kubernetes/ssl/server.key
+    etcd-cafile: /etc/kubernetes/ssl/ca.crt
+    etcd-certfile: /etc/kubernetes/ssl/etcd-client.crt
+    etcd-keyfile: /etc/kubernetes/ssl/etcd-client.key
+    admission-control: Initializers,NamespaceLifecycle,LimitRanger,ServiceAccount,PersistentVolumeLabel,DefaultStorageClass,DefaultTolerationSeconds,NodeRestriction,ResourceQuota
+    authorization-mode: RBAC,Node
+    service-cluster-ip-range: 10.10.0.0/16
+- name: controller
+  image: gcr.io/google_containers/hyperkube:v1.8.6
+  args:
+    master: 127.0.0.1:8080
+    service-account-private-key-file: /etc/kubernetes/ssl/server.key
+    root-ca-file: /etc/kubernetes/ssl/ca.crt
+    allocate-node-cidrs: "true"
+    cluster-cidr: 10.244.0.0/16
+- name: scheduler
+  image: gcr.io/google_containers/hyperkube:v1.8.6
+  args:
+    master: 127.0.0.1:8080
+- name: kubelet
+  image: gcr.io/google_containers/hyperkube:v1.8.6
+  args:
+    kubeconfig: /var/lib/kubeconfig/kubelet.yaml
+    allow-privileged: "true"
+    container-runtime: docker
+    pod-manifest-path: /etc/kubernetes/manifests
+    network-plugin: cni
+    cni-conf-dir: /etc/cni/net.d
+    cni-bin-dir: /opt/cni/bin
+    cluster-domain: cluster.local
+    hostname-override: '{NIRMATA_HOST_PRIVATE_DNS_NAME}'
+    cluster-dns: 10.10.0.10
+- name: proxy
+  image: gcr.io/google_containers/hyperkube:v1.8.6
+  args:
+    kubeconfig: /var/lib/kubeconfig/proxy.yaml
+addons:
+  dns: true
+

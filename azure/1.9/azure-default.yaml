@@ -1,0 +1,49 @@
+---
+version: v1.9.1
+cloud: azure
+authorization:
+  mode: rbac
+components:
+- name: etcd
+  image: gcr.io/google_containers/etcd:3.0.14
+  args: {}
+- name: apiserver
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    allow-privileged: "true"
+    client-ca-file: /etc/kubernetes/ssl/ca.crt
+    tls-cert-file: /etc/kubernetes/ssl/server.crt
+    tls-private-key-file: /etc/kubernetes/ssl/server.key
+    service-account-key-file: /etc/kubernetes/ssl/server.key
+    admission-control: NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota,DefaultTolerationSeconds,NodeRestriction
+    authorization-mode: RBAC,Node
+    service-cluster-ip-range: 10.10.0.0/16
+- name: controller-manager
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    service-account-private-key-file: /etc/kubernetes/ssl/server.key
+    root-ca-file: /etc/kubernetes/ssl/ca.crt
+    allocate-node-cidrs: "true"
+    cluster-cidr: 10.244.0.0/16
+    v: 5
+- name: scheduler
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args: {}
+- name: kubelet
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    kubeconfig: /var/lib/kubeconfig/kubelet.yaml
+    allow-privileged: "true"
+    container-runtime: docker
+    pod-manifest-path: /etc/kubernetes/manifests
+    network-plugin: cni
+    cni-conf-dir: /etc/cni/net.d
+    cni-bin-dir: /opt/cni/bin
+    cluster-domain: cluster.local
+    cluster-dns: 10.10.0.10
+- name: proxy
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    kubeconfig: /var/lib/kubeconfig/proxy.yaml
+addons:
+  dns: true

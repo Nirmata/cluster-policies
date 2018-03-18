@@ -1,0 +1,164 @@
+---
+labels:
+  nirmata.io/clusterspec.cloud: aws
+  nirmata.io/clusterspec.version: v1.9.1
+version: v1.9.1
+cloud: aws
+authorization:
+  mode: rbac
+components:
+- name: etcd
+  image: gcr.io/google_containers/etcd:3.0.14
+  args: {}
+- name: apiserver
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    allow-privileged: "true"
+    client-ca-file: /etc/kubernetes/ssl/ca.crt
+    tls-cert-file: /etc/kubernetes/ssl/server.crt
+    tls-private-key-file: /etc/kubernetes/ssl/server.key
+    service-account-key-file: /etc/kubernetes/ssl/server.key
+    admission-control: NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota,DefaultTolerationSeconds,NodeRestriction
+    authorization-mode: RBAC,Node
+    service-cluster-ip-range: 10.10.0.0/16
+- name: controller-manager
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    allocate-node-cidrs: "true"
+    v: 5
+- name: scheduler
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args: {}
+- name: kubelet
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    kubeconfig: /var/lib/kubeconfig/kubelet.yaml
+    allow-privileged: "true"
+    container-runtime: docker
+    pod-manifest-path: /etc/kubernetes/manifests
+    network-plugin: cni
+    cni-conf-dir: /etc/cni/net.d
+    cni-bin-dir: /opt/cni/bin
+    cluster-domain: cluster.local
+    cluster-dns: 10.10.0.10
+    node-ip: '{NIRMATA_HOST_PRIVATE_ADDRESS}'
+- name: proxy
+  image: gcr.io/google_containers/hyperkube:v1.9.1
+  args:
+    kubeconfig: /var/lib/kubeconfig/proxy.yaml
+addons:
+  dns: true
+storageClasses:
+- name: awssc
+  isDefault: false
+  yaml: |
+    ---
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: nirmata-ss
+      annotations:
+        storageclass.beta.kubernetes.io/is-default-class: "true"
+      labels:
+        kubernetes.io/cluster-service: "true"
+    allowVolumeExpansion: true
+    reclaimPolicy: Retain
+    provisioner: kubernetes.io/aws-ebs
+    parameters:
+      type: io1
+      iopsPerGB: "50"
+      fsType: ext4
+- name: default
+  isDefault: true
+  yaml: |-
+    ---
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: default
+      annotations:
+        storageclass.beta.kubernetes.io/is-default-class: "true"
+      labels:
+        kubernetes.io/cluster-service: "true"
+    provisioner: kubernetes.io/aws-ebs
+    parameters:
+      type: io1
+      iopsPerGB: "10"
+      fsType: ext4
+ingressController:
+  name: nginx-ingress
+  yaml: "---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: ingress-nginx\n\
+    ---\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: nginx-ingress-serviceaccount\n\
+    \  namespace: ingress-nginx\n\n---\n\napiVersion: rbac.authorization.k8s.io/v1beta1\n\
+    kind: ClusterRole\nmetadata:\n  name: nginx-ingress-clusterrole\nrules:\n  - apiGroups:\n\
+    \      - \"\"\n    resources:\n      - configmaps\n      - endpoints\n      -\
+    \ nodes\n      - pods\n      - secrets\n    verbs:\n      - list\n      - watch\n\
+    \  - apiGroups:\n      - \"\"\n    resources:\n      - nodes\n    verbs:\n   \
+    \   - get\n  - apiGroups:\n      - \"\"\n    resources:\n      - services\n  \
+    \  verbs:\n      - get\n      - list\n      - watch\n  - apiGroups:\n      - \"\
+    extensions\"\n    resources:\n      - ingresses\n    verbs:\n      - get\n   \
+    \   - list\n      - watch\n  - apiGroups:\n      - \"\"\n    resources:\n    \
+    \    - events\n    verbs:\n        - create\n        - patch\n  - apiGroups:\n\
+    \      - \"extensions\"\n    resources:\n      - ingresses/status\n    verbs:\n\
+    \      - update\n\n---\n\napiVersion: rbac.authorization.k8s.io/v1beta1\nkind:\
+    \ Role\nmetadata:\n  name: nginx-ingress-role\n  namespace: ingress-nginx\nrules:\n\
+    \  - apiGroups:\n      - \"\"\n    resources:\n      - configmaps\n      - pods\n\
+    \      - secrets\n      - namespaces\n    verbs:\n      - get\n  - apiGroups:\n\
+    \      - \"\"\n    resources:\n      - configmaps\n    resourceNames:\n      #\
+    \ Defaults to \"<election-id>-<ingress-class>\"\n      # Here: \"<ingress-controller-leader>-<nginx>\"\
+    \n      # This has to be adapted if you change either parameter\n      # when\
+    \ launching the nginx-ingress-controller.\n      - \"ingress-controller-leader-nginx\"\
+    \n    verbs:\n      - get\n      - update\n  - apiGroups:\n      - \"\"\n    resources:\n\
+    \      - configmaps\n    verbs:\n      - create\n  - apiGroups:\n      - \"\"\n\
+    \    resources:\n      - endpoints\n    verbs:\n      - get\n\n---\n\napiVersion:\
+    \ rbac.authorization.k8s.io/v1beta1\nkind: RoleBinding\nmetadata:\n  name: nginx-ingress-role-nisa-binding\n\
+    \  namespace: ingress-nginx\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n\
+    \  kind: Role\n  name: nginx-ingress-role\nsubjects:\n  - kind: ServiceAccount\n\
+    \    name: nginx-ingress-serviceaccount\n    namespace: ingress-nginx\n\n---\n\
+    \napiVersion: rbac.authorization.k8s.io/v1beta1\nkind: ClusterRoleBinding\nmetadata:\n\
+    \  name: nginx-ingress-clusterrole-nisa-binding\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n\
+    \  kind: ClusterRole\n  name: nginx-ingress-clusterrole\nsubjects:\n  - kind:\
+    \ ServiceAccount\n    name: nginx-ingress-serviceaccount\n    namespace: ingress-nginx\n\
+    ---\nkind: ConfigMap\napiVersion: v1\nmetadata:\n  name: tcp-services\n  namespace:\
+    \ ingress-nginx\n---\nkind: ConfigMap\napiVersion: v1\nmetadata:\n  name: nginx-configuration\n\
+    \  namespace: ingress-nginx\n  labels:\n    app: ingress-nginx\n---\nkind: ConfigMap\n\
+    apiVersion: v1\nmetadata:\n  name: udp-services\n  namespace: ingress-nginx\n\
+    ---\napiVersion: extensions/v1beta1\nkind: Deployment\nmetadata:\n  name: default-http-backend\n\
+    \  labels:\n    app: default-http-backend\n  namespace: ingress-nginx\nspec:\n\
+    \  replicas: 1\n  selector:\n    matchLabels:\n      app: default-http-backend\n\
+    \  template:\n    metadata:\n      labels:\n        app: default-http-backend\n\
+    \    spec:\n      terminationGracePeriodSeconds: 60\n      containers:\n     \
+    \ - name: default-http-backend\n        # Any image is permissible as long as:\n\
+    \        # 1. It serves a 404 page at /\n        # 2. It serves 200 on a /healthz\
+    \ endpoint\n        image: gcr.io/google_containers/defaultbackend:1.4\n     \
+    \   livenessProbe:\n          httpGet:\n            path: /healthz\n         \
+    \   port: 8080\n            scheme: HTTP\n          initialDelaySeconds: 30\n\
+    \          timeoutSeconds: 5\n        ports:\n        - containerPort: 8080\n\
+    \        resources:\n          limits:\n            cpu: 10m\n            memory:\
+    \ 20Mi\n          requests:\n            cpu: 10m\n            memory: 20Mi\n\
+    ---\napiVersion: v1\nkind: Service\nmetadata:\n  name: default-http-backend\n\
+    \  namespace: ingress-nginx\n  labels:\n    app: default-http-backend\nspec:\n\
+    \  ports:\n  - port: 80\n    targetPort: 8080\n  selector:\n    app: default-http-backend\n\
+    ---\napiVersion: extensions/v1beta1\nkind: Deployment\nmetadata:\n  name: nginx-ingress-controller\n\
+    \  namespace: ingress-nginx \nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n\
+    \      app: ingress-nginx\n  template:\n    metadata:\n      labels:\n       \
+    \ app: ingress-nginx\n      annotations:\n        prometheus.io/port: '10254'\n\
+    \        prometheus.io/scrape: 'true'\n    spec:\n      serviceAccountName: nginx-ingress-serviceaccount\n\
+    \      containers:\n        - name: nginx-ingress-controller\n          image:\
+    \ quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.10.2\n    \
+    \      args:\n            - /nginx-ingress-controller\n            - --default-backend-service=$(POD_NAMESPACE)/default-http-backend\n\
+    \            - --configmap=$(POD_NAMESPACE)/nginx-configuration\n            -\
+    \ --tcp-services-configmap=$(POD_NAMESPACE)/tcp-services\n            - --udp-services-configmap=$(POD_NAMESPACE)/udp-services\n\
+    \            - --annotations-prefix=nginx.ingress.kubernetes.io\n          env:\n\
+    \            - name: POD_NAME\n              valueFrom:\n                fieldRef:\n\
+    \                  fieldPath: metadata.name\n            - name: POD_NAMESPACE\n\
+    \              valueFrom:\n                fieldRef:\n                  fieldPath:\
+    \ metadata.namespace\n          ports:\n          - name: http\n            containerPort:\
+    \ 80\n          - name: https\n            containerPort: 443\n          livenessProbe:\n\
+    \            failureThreshold: 3\n            httpGet:\n              path: /healthz\n\
+    \              port: 10254\n              scheme: HTTP\n            initialDelaySeconds:\
+    \ 10\n            periodSeconds: 10\n            successThreshold: 1\n       \
+    \     timeoutSeconds: 1\n          readinessProbe:\n            failureThreshold:\
+    \ 3\n            httpGet:\n              path: /healthz\n              port: 10254\n\
+    \              scheme: HTTP\n            periodSeconds: 10\n            successThreshold:\
+    \ 1\n            timeoutSeconds: 1\n"
